@@ -1,0 +1,46 @@
+[
+  {
+    "query": "build a feature where the AI recommends gift bundles from our catalog",
+    "should_trigger": true
+  },
+  {
+    "query": "the model keeps inventing product links in its answers, how do I stop that?",
+    "should_trigger": true
+  },
+  {
+    "query": "I changed the prompt and want to know if it got better or worse",
+    "should_trigger": true
+  },
+  {
+    "query": "add structured JSON output from Claude with validation and fallback to another provider",
+    "should_trigger": true
+  },
+  {
+    "query": "AI generation costs are too high, how do we cap spend per day?",
+    "should_trigger": true
+  },
+  {
+    "query": "users can type free text that goes into the prompt, how do I stop prompt injection?",
+    "should_trigger": true
+  },
+  {
+    "query": "what's the capital of France?",
+    "should_trigger": false
+  },
+  {
+    "query": "fix the typo in the README",
+    "should_trigger": false
+  },
+  {
+    "query": "write a regex that matches UK postcodes",
+    "should_trigger": false
+  },
+  {
+    "query": "explain how transformers work for a blog post",
+    "should_trigger": false
+  },
+  {
+    "query": "set up ESLint for a TypeScript project",
+    "should_trigger": false
+  }
+]

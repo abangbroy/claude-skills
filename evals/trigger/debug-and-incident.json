@@ -1,0 +1,46 @@
+[
+  {
+    "query": "this test fails randomly in CI but passes locally, figure out why",
+    "should_trigger": true
+  },
+  {
+    "query": "production is returning 500s after the last deploy, what do we do first?",
+    "should_trigger": true
+  },
+  {
+    "query": "I can't reproduce this bug, how do I find which commit broke it?",
+    "should_trigger": true
+  },
+  {
+    "query": "write a postmortem for yesterday's outage",
+    "should_trigger": true
+  },
+  {
+    "query": "users report they were charged twice, help me investigate",
+    "should_trigger": true
+  },
+  {
+    "query": "the error only happens with one customer's data, help me track it down",
+    "should_trigger": true
+  },
+  {
+    "query": "add a new endpoint that returns the list of products",
+    "should_trigger": false
+  },
+  {
+    "query": "write unit tests for this new utility function",
+    "should_trigger": false
+  },
+  {
+    "query": "translate this error message into Spanish",
+    "should_trigger": false
+  },
+  {
+    "query": "what is the difference between a mutex and a semaphore?",
+    "should_trigger": false
+  },
+  {
+    "query": "generate a logo for my app",
+    "should_trigger": false
+  }
+]

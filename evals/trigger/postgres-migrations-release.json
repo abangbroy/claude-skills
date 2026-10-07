@@ -1,0 +1,46 @@
+[
+  {
+    "query": "add a column for shipping_address to the orders table, safely",
+    "should_trigger": true
+  },
+  {
+    "query": "write a migration that renames users.name to users.full_name without downtime",
+    "should_trigger": true
+  },
+  {
+    "query": "do I need row level security on this new table?",
+    "should_trigger": true
+  },
+  {
+    "query": "how should we release schema changes to production and roll back if it goes wrong?",
+    "should_trigger": true
+  },
+  {
+    "query": "set up nightly encrypted backups for our Supabase database",
+    "should_trigger": true
+  },
+  {
+    "query": "my database tests were skipped in CI, how do I make them always run?",
+    "should_trigger": true
+  },
+  {
+    "query": "write a CSS grid layout for a pricing page",
+    "should_trigger": false
+  },
+  {
+    "query": "explain the difference between SQL joins",
+    "should_trigger": false
+  },
+  {
+    "query": "how do I use useEffect cleanly in React?",
+    "should_trigger": false
+  },
+  {
+    "query": "set up a GitHub Action to lint markdown files",
+    "should_trigger": false
+  },
+  {
+    "query": "tune this slow SELECT query that has no index",
+    "should_trigger": false
+  }
+]

@@ -1,0 +1,46 @@
+[
+  {
+    "query": "I'm starting a new SaaS project, help me set up the repo so Claude can work on it safely",
+    "should_trigger": true
+  },
+  {
+    "query": "write a CLAUDE.md for this codebase with the rules that matter",
+    "should_trigger": true
+  },
+  {
+    "query": "set up a SessionStart hook so cloud sessions have dependencies installed and Postgres running",
+    "should_trigger": true
+  },
+  {
+    "query": "bootstrap this repo: PRD, build plan, CI and ADRs",
+    "should_trigger": true
+  },
+  {
+    "query": "make this repo Claude-ready before I build the MVP",
+    "should_trigger": true
+  },
+  {
+    "query": "add dev fakes for our payment gateway and email provider so tests run offline",
+    "should_trigger": true
+  },
+  {
+    "query": "fix the off-by-one error in the pagination helper",
+    "should_trigger": false
+  },
+  {
+    "query": "summarize this PDF for me",
+    "should_trigger": false
+  },
+  {
+    "query": "add a dark mode toggle to the settings page",
+    "should_trigger": false
+  },
+  {
+    "query": "why is my docker build slow?",
+    "should_trigger": false
+  },
+  {
+    "query": "write a SQL query to find duplicate emails",
+    "should_trigger": false
+  }
+]

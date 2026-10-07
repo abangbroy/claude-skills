@@ -1,0 +1,46 @@
+[
+  {
+    "query": "integrate Stripe checkout and handle the webhook when payment succeeds",
+    "should_trigger": true
+  },
+  {
+    "query": "customers sometimes get charged but never receive credits, what could cause that?",
+    "should_trigger": true
+  },
+  {
+    "query": "implement a wallet with top-ups and make sure the balance can't go negative",
+    "should_trigger": true
+  },
+  {
+    "query": "how do I make a payment webhook idempotent when the gateway retries?",
+    "should_trigger": true
+  },
+  {
+    "query": "add refunds when our fulfilment job fails",
+    "should_trigger": true
+  },
+  {
+    "query": "we're adding Billplz as a payment method, design the integration",
+    "should_trigger": true
+  },
+  {
+    "query": "change the button colour on the checkout page",
+    "should_trigger": false
+  },
+  {
+    "query": "write a function to format currency for display in a table",
+    "should_trigger": false
+  },
+  {
+    "query": "explain how OAuth login works",
+    "should_trigger": false
+  },
+  {
+    "query": "set up a cron job to email a weekly newsletter",
+    "should_trigger": false
+  },
+  {
+    "query": "calculate compound interest in python",
+    "should_trigger": false
+  }
+]
