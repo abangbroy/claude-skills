@@ -1,0 +1,27 @@
+# Add as an early step of the CI job that runs on pull requests (after actions/checkout).
+# Fails if any migration that exists on the base branch was modified (M), renamed (R) or
+# deleted (D), and names each file. New files pass. Adjust the migrations path.
+#
+# Works with the default shallow checkout: it fetches only the base commit. On a PR,
+# HEAD is GitHub's merge commit, so the diff is exactly the PR's changes.
+
+      - name: Applied migrations are never edited
+        # A merged migration has already run on staging (and maybe production), so changing it
+        # changes nothing there; fix it with a new migration.
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          changed=$(git diff --name-status --diff-filter=MDR "$BASE_SHA" HEAD -- supabase/migrations/)
+          if [ -n "$changed" ]; then
+            echo "$changed" | while read -r status path _; do
+              echo "::error file=$path::Applied migration changed ($status). Add a new NNNN_description.sql instead."
+            done
+            exit 1
+          fi
+
+# Test it before relying on it: in a throwaway worktree, commit (1) nothing, (2) a new
+# migration file, (3) an edit, a `git mv` and a `git rm` of existing files, and run the
+# script body with BASE_SHA set to the starting commit. Expect pass, pass, fail with
+# three ::error lines (M, R100, D).
