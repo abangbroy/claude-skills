@@ -65,7 +65,8 @@ production (`/supabase\.(co|com)/`, `APP_ENV=production`).
 
 ## Vitest wiring
 
-`vitest.config.mts`: `globalSetup: ["src/test/global-setup.ts"]`, `fileParallelism: false`.
+`vitest.config.mts`: `globalSetup: ["src/test/global-setup.ts"]`, `fileParallelism: false`
+(one shared database; see "Faster" below to run files in parallel).
 
 ```ts
 // src/test/global-setup.ts — rebuild once per run
@@ -102,6 +103,36 @@ export function useTestDb(): { sql: () => Sql } {
 Keep `APP_TABLES` complete: a forgotten table leaks rows between tests and makes
 order-dependent failures. A test that lists tables from `pg_tables` and compares
 is cheap insurance.
+
+## Faster: one database per worker, cloned from a template
+
+Truncating tables between tests forces `fileParallelism: false`, so the suite
+runs one file at a time. Give each worker its own database instead and run
+files in parallel:
+
+```ts
+// global-setup.ts — once per run: build the template, then CLOSE every connection to it
+await resetDatabase(templateUrl);             // e.g. app_test_template; resetDatabase ends its own client
+// setup file (setupFiles) — once per worker
+const worker = process.env.VITEST_POOL_ID ?? "1";   // VERIFY: name of the worker id variable in your runner version
+const name = `app_test_w${worker}`;
+const admin = postgres(adminUrl, { max: 1 });
+await admin.unsafe(`drop database if exists ${name} with (force)`);
+await admin.unsafe(`create database ${name} template app_test_template`);
+await admin.end();
+process.env.TEST_DATABASE_URL = urlFor(name);  // then useTestDb() truncates per test as before
+```
+
+Measured on Postgres 16: six workers cloning one template concurrently all
+succeed. The rule that bites: **the template must have no open connections**
+(`source database ... is being accessed by other users`), so the global setup
+must finish and close its client before any worker starts. Drop the worker
+databases in a global teardown. pytest-xdist: use `PYTEST_XDIST_WORKER`
+(`gw0`, `gw1`, …) the same way. Keep `APP_TABLES` truncation per test inside
+each worker; it is still what isolates tests from each other.
+
+Concurrency tests (two transactions at once) belong in one file and one
+worker; they exercise locks between connections, not between test files.
 
 ## Python equivalent
 

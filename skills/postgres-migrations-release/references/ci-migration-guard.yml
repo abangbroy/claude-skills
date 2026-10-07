@@ -21,6 +21,18 @@
             exit 1
           fi
 
+      - name: Lint new migrations (Squawk)
+        # Only files this PR adds: old migrations are immutable, so linting them can't be acted on.
+        # VERIFY: package name, flags and rule ids against the Squawk version you install; pin the version.
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          files=$(git diff --name-only --diff-filter=A "$BASE_SHA" HEAD -- supabase/migrations/ | grep '\.sql$' || true)
+          [ -z "$files" ] && exit 0
+          npx --yes squawk-cli@latest $files   # replace @latest with a pinned version
+
 # Test it before relying on it: in a throwaway worktree, commit (1) nothing, (2) a new
 # migration file, (3) an edit, a `git mv` and a `git rm` of existing files, and run the
 # script body with BASE_SHA set to the starting commit. Expect pass, pass, fail with

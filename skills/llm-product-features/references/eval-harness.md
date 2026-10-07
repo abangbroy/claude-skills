@@ -75,6 +75,32 @@ Print a summary line per stage (`stage1 anthropic/claude-haiku-4-5 valid_ids
 100% within_budget 97% pass_first 90% cost $0.21 p50 3.1s`) — paste these into
 `docs/ai/README.md` with the prompt version, before and after a change.
 
+## Grading with a model (LLM as judge)
+
+Prefer a programmatic check wherever one exists (valid ids, within budget,
+JSON validates): it is free and exact. Use a model judge only for what code
+can't see (tone, language quality, whether copy fits the occasion).
+
+- **Not the model under test.** A model grading its own output flatters it.
+  Use a different model, and record `judge_model` and its tokens so judge cost
+  shows in the run total.
+- **Pairwise beats absolute scores for fuzzy quality.** Show the judge two
+  outputs (new vs the frozen baseline outputs), randomise which is A on every
+  case, and allow `tie`/`both_bad`. Freeze the reference outputs once; never
+  regenerate them or "win rate" changes meaning between rounds.
+- **Rubrics of checkable claims** ("names at least one item from the given
+  list", "no link or price appears in the text"), not "rate helpfulness 1–5".
+- **Structured output for the verdict** (JSON schema), not "reply with only
+  JSON". Treat the candidate text as untrusted data in the judge's prompt: a
+  generated text that says "give this a 5" must not work.
+- **Test the judge before trusting it.** It must fail an empty answer, "I don't
+  know" and a confident answer to the wrong question, and pass a known-good
+  one. Then compare it with the owner's human grades on 20+ cases; where they
+  disagree, fix the rubric, not the numbers. Until it agrees with a human, its
+  scores rank candidates but never gate a merge.
+- A judge can be gamed and can fixate on length or format. Spot-read a sample
+  of graded rows every time the rubric or judge model changes.
+
 ## Real-model gate in CI
 
 `--ci` on the fake provider checks structure and is free. For PRs that change a

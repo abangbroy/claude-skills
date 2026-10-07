@@ -1,6 +1,6 @@
 ---
 name: payments-webhooks
-description: Build payment and money logic that survives real gateways - integer money, a gateway adapter with an offline fake, signed webhooks processed in one idempotent transaction, status precedence for late and out-of-order events, a credit/wallet ledger that can't go negative or double-grant, reconciliation when webhooks go missing, refunds on failed fulfilment, and the tests that prove it. Use whenever the task involves checkout, a payment gateway (Stripe, CHIP, Billplz, Xendit, PayPal, ToyyibPay…), webhooks or callbacks, credits, wallets, top-ups, subscriptions, refunds, invoices, or any code that moves money - even a "small" pricing change.
+description: Build payment and money logic that survives real gateways - integer money, a gateway adapter with an offline fake, signed webhooks processed in one idempotent transaction, idempotency keys on gateway calls, status precedence for late and out-of-order events, a credit/wallet ledger that can't go negative or double-grant, reconciliation when webhooks go missing, refunds on failed fulfilment, and the tests that prove it. Use whenever the task involves checkout, a payment gateway (Stripe, CHIP, Billplz, Xendit, PayPal, ToyyibPay…), webhooks or callbacks, credits, wallets, top-ups, subscriptions, refunds, invoices, or any code that moves money - even a "small" pricing change.
 ---
 
 # Payments and webhooks
@@ -131,6 +131,35 @@ Unit/DB tests (on a real database, see postgres-migrations-release):
 - Fulfilment job dies → credit refunded exactly once, even if `onDead` failed
   the first time.
 - Reconciliation racing the webhook → granted once.
+
+**Property tests for the rules that must hold for every ordering.** Examples
+catch the cases you thought of; webhooks arrive in orders you didn't. Pull the
+status rule into a pure function and let a generator try thousands of event
+sequences (fast-check for TypeScript, Hypothesis for Python):
+
+```ts
+import fc from "fast-check";
+const statuses = ["created", "failed", "expired", "paid", "refunded"] as const;
+const sequences = fc.array(fc.constantFrom(...statuses), { minLength: 1, maxLength: 12 });
+
+test("a paid payment never goes back, whatever order events arrive in", () => {
+  fc.assert(fc.property(sequences, (events) => {
+    let paid = false;
+    return events.every((e, i) => {
+      const s = events.slice(0, i + 1).reduce(nextStatus, "created");
+      paid ||= s === "paid" || s === "refunded";
+      return !paid || s === "paid" || s === "refunded";
+    });
+  }));
+});
+test("redelivering an event changes nothing", () => { /* nextStatus(s, e) === s after e applied once */ });
+```
+
+Run against a naive "last event wins" version, this finds and shrinks to the
+two-event counterexample (`refunded` then `created`) in milliseconds. Do the
+same for the ledger: any mix of grants, spends and refunds never leaves a
+balance below zero, and a refund returns exactly one credit. Keep a seed in
+the failure message so a failure reproduces.
 
 E2E: the full journey with the fake gateway, plus a declined payment.
 
