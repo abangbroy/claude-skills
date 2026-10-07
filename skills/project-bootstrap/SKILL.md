@@ -99,6 +99,26 @@ deterministic fake (`AI_PROVIDER=fake`, `PAYMENT_GATEWAY=fake`,
   to prove it's idempotent, then run one lint and one DB test.
 - Allowlist only exact, side-effect-free commands (`Bash(npm run lint)`), never
   interpreter or runner wildcards.
+- **Enforce the rules with hooks, don't just write them down.** A rule in
+  CLAUDE.md is followed when the model remembers it; a hook is followed every
+  time, and costs no context. Three small hooks in
+  [references/hooks/](references/hooks/) (settings snippet in
+  `settings.json`; copy the scripts to `.claude/hooks/`):
+  - `guard-edit.sh` (PreToolUse) refuses edits to a migration that already
+    exists on the default branch, to `.env`/key files, and to lockfiles.
+  - `after-edit.sh` (PostToolUse) formats and lints just the edited file and
+    hands errors straight back, so a mistake is fixed one edit after it
+    happens.
+  - `stop-check.sh` (Stop) runs `scripts/fast-checks.sh`
+    ([template](references/fast-checks.sh)) and refuses to let Claude finish
+    while it fails **or while tests were skipped**. After two refusals in a
+    row it lets Claude stop and report, so an unfixable check never traps a
+    session.
+
+  Pipe-test each hook with a synthetic JSON payload before trusting it (the
+  scripts show the input shape), and commit `.claude/settings.json` so every
+  cloud session gets them. Hooks that need `jq` say so loudly when it is
+  missing; the SessionStart hook installs or checks it.
 
 ## 6. The project's own skills
 

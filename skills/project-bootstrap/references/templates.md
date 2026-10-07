@@ -38,6 +38,11 @@ Read `docs/prd/MVP_v1.md` and `docs/BUILD_PLAN.md` before starting a task. Work 
 - `.claude/skills/verify` — how to prove a change works. Use before saying something works.
 - `.claude/skills/ship-pr` — checks, review and paperwork before opening a PR.
 
+## Enforced by hooks (`.claude/hooks/`)
+- Applied migrations, `.env`/key files and lockfiles cannot be edited; the edit is refused with the reason.
+- Each edited file is formatted and linted straight after the edit.
+- Finishing runs `scripts/fast-checks.sh`; failures and skipped tests block it. Fix the cause, never the check.
+
 ## Tests
 - Unit tests required for: <money, credits, webhooks, link validation, …>.
 - Database tests run when `TEST_DATABASE_URL` is set (CI runs Postgres); a run that skipped them is not a pass.
