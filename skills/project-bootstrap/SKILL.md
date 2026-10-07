@@ -1,6 +1,6 @@
 ---
 name: project-bootstrap
-description: Set up a new or young repository so Claude Code can build it safely for months - PRD and build plan, a short CLAUDE.md with the product's non-negotiables, ADRs, CHANGELOG, CI with a real database, dev fakes for paid services, a cloud SessionStart hook, and the project's own verify and ship-pr skills. Use whenever the user starts a new project or repo, says "set up", "scaffold", "bootstrap", "make this repo Claude-ready", asks for a CLAUDE.md, or is about to build an MVP - even if they only describe the product idea and don't ask for setup.
+description: Set up a new or young repository so Claude Code can build it safely for months - PRD and build plan, a short CLAUDE.md with the product's non-negotiables, ADRs, CHANGELOG, CI with a real database, dev fakes for paid services, a cloud SessionStart hook, enforcement hooks that block forbidden edits and unverified finishes, a hardened CI, and the project's own verify and ship-pr skills. Use whenever the user starts a new project or repo, says "set up", "scaffold", "bootstrap", "make this repo Claude-ready", asks for a CLAUDE.md, or is about to build an MVP - even if they only describe the product idea and don't ask for setup.
 ---
 
 # Project bootstrap
@@ -84,10 +84,23 @@ deterministic fake (`AI_PROVIDER=fake`, `PAYMENT_GATEWAY=fake`,
 ## 5. CI and cloud sessions
 
 - **CI** (`.github/workflows/ci.yml`): typecheck, lint, unit tests with a
-  real Postgres service, build, dependency audit; E2E only on PRs after the
-  check job passes. Skip docs-only changes, cancel superseded PR runs, set
+  real Postgres service, build; E2E only on PRs after the check job passes.
+  Skip docs-only changes **with a `scope` job and `if:`, never a `paths:`
+  filter** (a workflow skipped by a path filter reports nothing, so a required
+  check stays Pending and the PR can't merge). Cancel superseded PR runs, set
   job timeouts (free CI minutes run out). Starter in
   [references/ci.yml](references/ci.yml).
+- **CI supply chain**: read-only token (`permissions: contents: read`), actions
+  pinned to a commit SHA with the version in a comment, Dependabot keeping
+  both current ([dependabot.yml](references/dependabot.yml)). Run
+  `npm audit` on PRs that change dependencies, plus a weekly schedule
+  ([audit.yml](references/audit.yml)), so a newly published advisory doesn't
+  turn every unrelated PR red.
+- **Dependency upgrades**: one major version per PR; read its changelog first
+  and say what you checked in the PR; let the package manager regenerate the
+  lockfile (never hand-edit it, the guard hook blocks it); run the full checks
+  and E2E, not just the fast ones; never silence a resolution error with
+  `--force` or `--legacy-peer-deps` without an ADR saying why.
 - **Skipped tests are failures.** Database tests usually skip when no DB URL
   is set, and the runner still says green. Make CI set the URL, and make the
   verify skill check the skipped count.
@@ -99,6 +112,26 @@ deterministic fake (`AI_PROVIDER=fake`, `PAYMENT_GATEWAY=fake`,
   to prove it's idempotent, then run one lint and one DB test.
 - Allowlist only exact, side-effect-free commands (`Bash(npm run lint)`), never
   interpreter or runner wildcards.
+- **Enforce the rules with hooks, don't just write them down.** A rule in
+  CLAUDE.md is followed when the model remembers it; a hook is followed every
+  time, and costs no context. Three small hooks in
+  [references/hooks/](references/hooks/) (settings snippet in
+  `settings.json`; copy the scripts to `.claude/hooks/`):
+  - `guard-edit.sh` (PreToolUse) refuses edits to a migration that already
+    exists on the default branch, to `.env`/key files, and to lockfiles.
+  - `after-edit.sh` (PostToolUse) formats and lints just the edited file and
+    hands errors straight back, so a mistake is fixed one edit after it
+    happens.
+  - `stop-check.sh` (Stop) runs `scripts/fast-checks.sh`
+    ([template](references/fast-checks.sh)) and refuses to let Claude finish
+    while it fails **or while tests were skipped**. After two refusals in a
+    row it lets Claude stop and report, so an unfixable check never traps a
+    session.
+
+  Pipe-test each hook with a synthetic JSON payload before trusting it (the
+  scripts show the input shape), and commit `.claude/settings.json` so every
+  cloud session gets them. Hooks that need `jq` say so loudly when it is
+  missing; the SessionStart hook installs or checks it.
 
 ## 6. The project's own skills
 

@@ -1,0 +1,40 @@
+# Real-model smoke eval for PRs that change prompts, model config or the eval code.
+# Add as .github/workflows/eval-real.yml. Costs a few cents per run: capped by --max-cost-usd,
+# and the key should also have a spend limit set at the provider.
+name: Eval (real model)
+on:
+  pull_request:
+    paths: ["prompts/**", "src/lib/ai/config.*", "scripts/eval.*", "evals/**"]   # adapt to your layout
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eval-real-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  eval:
+    # Secrets are not passed to PRs from forks; skip visibly instead of failing or leaking.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      AI_PROVIDER: anthropic            # whichever provider the stage uses in production
+      ANTHROPIC_API_KEY: ${{ secrets.EVAL_ANTHROPIC_API_KEY }}   # CI-only key with a spend limit
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Smoke eval against baseline
+        run: npm run eval -- --stage both --smoke --ci --max-cost-usd 1
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: eval-results
+          path: .eval-results/

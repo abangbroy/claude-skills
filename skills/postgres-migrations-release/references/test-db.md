@@ -12,7 +12,11 @@ import postgres from "postgres";
 
 const MIGRATIONS_DIR = path.join(process.cwd(), "supabase", "migrations");
 
-/** Local/CI runner. Tracks applied files in dev_meta.migrations. Hosted envs use the provider's tool. */
+/**
+ * Local/CI runner. Tracks applied files in dev_meta.migrations. Hosted envs use the provider's tool.
+ * Each file runs in one transaction, except files whose first lines contain `-- no-transaction`
+ * (for `create index concurrently`); the hosted tool must be told the same (see SKILL.md).
+ */
 export async function applyMigrations(url: string): Promise<string[]> {
   const sql = postgres(url, { max: 1, onnotice: () => {} });
   try {
@@ -24,10 +28,18 @@ export async function applyMigrations(url: string): Promise<string[]> {
     for (const file of files) {
       if (done.has(file)) continue;
       const body = readFileSync(path.join(MIGRATIONS_DIR, file), "utf8");
-      await sql.begin(async (tx) => {
-        await tx.unsafe(body);
-        await tx`insert into dev_meta.migrations (name) values (${file})`;
-      });
+      if (/^--\s*no-transaction\b/m.test(body.split("\n", 3).join("\n"))) {
+        // `create index concurrently` and friends cannot run inside a transaction.
+        // Keep such a file to one statement type so a failure leaves nothing half-applied,
+        // and make it re-runnable (`if not exists`).
+        await sql.unsafe(body);
+        await sql`insert into dev_meta.migrations (name) values (${file})`;
+      } else {
+        await sql.begin(async (tx) => {
+          await tx.unsafe(body);
+          await tx`insert into dev_meta.migrations (name) values (${file})`;
+        });
+      }
       applied.push(file);
     }
     return applied;
@@ -53,7 +65,8 @@ production (`/supabase\.(co|com)/`, `APP_ENV=production`).
 
 ## Vitest wiring
 
-`vitest.config.mts`: `globalSetup: ["src/test/global-setup.ts"]`, `fileParallelism: false`.
+`vitest.config.mts`: `globalSetup: ["src/test/global-setup.ts"]`, `fileParallelism: false`
+(one shared database; see "Faster" below to run files in parallel).
 
 ```ts
 // src/test/global-setup.ts — rebuild once per run
@@ -90,6 +103,36 @@ export function useTestDb(): { sql: () => Sql } {
 Keep `APP_TABLES` complete: a forgotten table leaks rows between tests and makes
 order-dependent failures. A test that lists tables from `pg_tables` and compares
 is cheap insurance.
+
+## Faster: one database per worker, cloned from a template
+
+Truncating tables between tests forces `fileParallelism: false`, so the suite
+runs one file at a time. Give each worker its own database instead and run
+files in parallel:
+
+```ts
+// global-setup.ts — once per run: build the template, then CLOSE every connection to it
+await resetDatabase(templateUrl);             // e.g. app_test_template; resetDatabase ends its own client
+// setup file (setupFiles) — once per worker
+const worker = process.env.VITEST_POOL_ID ?? "1";   // VERIFY: name of the worker id variable in your runner version
+const name = `app_test_w${worker}`;
+const admin = postgres(adminUrl, { max: 1 });
+await admin.unsafe(`drop database if exists ${name} with (force)`);
+await admin.unsafe(`create database ${name} template app_test_template`);
+await admin.end();
+process.env.TEST_DATABASE_URL = urlFor(name);  // then useTestDb() truncates per test as before
+```
+
+Measured on Postgres 16: six workers cloning one template concurrently all
+succeed. The rule that bites: **the template must have no open connections**
+(`source database ... is being accessed by other users`), so the global setup
+must finish and close its client before any worker starts. Drop the worker
+databases in a global teardown. pytest-xdist: use `PYTEST_XDIST_WORKER`
+(`gw0`, `gw1`, …) the same way. Keep `APP_TABLES` truncation per test inside
+each worker; it is still what isolates tests from each other.
+
+Concurrency tests (two transactions at once) belong in one file and one
+worker; they exercise locks between connections, not between test files.
 
 ## Python equivalent
 

@@ -1,6 +1,6 @@
 ---
 name: verify-and-ship
-description: The method for proving a code change works and taking it to a mergeable pull request - evidence from a real database and a production build instead of "it compiles", a regression test that fails before the fix, a fresh-context review, an honest PR body, and driving CI to green without skipping tests. Use before saying any change works or is done, when asked to test, verify, run, ship, open or update a PR, fix CI, or respond to review comments. If the repo has its own verify or ship-pr skill, follow that for the commands and use this for the method.
+description: The method for proving a code change works and taking it to a mergeable pull request - evidence from a real database and a production build instead of "it compiles", planning and tests-first for non-trivial changes, a regression test that fails before the fix, a fresh-context review, an honest PR body, and driving CI to green without skipping tests. Use before starting a non-trivial change, before saying any change works or is done, when asked to test, verify, run, ship, open or update a PR, fix CI, or respond to review comments. If the repo has its own verify or ship-pr skill, follow that for the commands and use this for the method.
 ---
 
 # Verify and ship
@@ -9,6 +9,30 @@ The expensive failures in agent-built software are not compile errors. They
 are green test runs that skipped the database, a fix nobody saw fail first, a
 PR body that claims testing that never happened, and a "flaky" test retried
 until it passed. This skill is the habit that prevents them.
+
+## Part 0 — Build so there is less to verify
+
+Most bugs are cheaper to prevent than to find. Before writing code:
+
+- **Plan first when the change is bigger than one small function**: more than
+  two files, anything in a risky area (money, auth, migrations, webhooks), or
+  any requirement you had to interpret. Write five lines: what changes, which
+  files, which tests prove it, the riskiest assumption, what is *not* in this
+  change. If the assumption is the user's to settle, ask now, not after the
+  diff exists.
+- **Tests first, from the acceptance criteria.** Turn each criterion in the
+  PRD or issue into a failing test named after it, run them red, then write
+  the code until they are green. Tests written after the code tend to
+  describe what the code does, bugs included.
+- **Small steps, each green.** Commit when a step passes. If the diff passes
+  ~400 lines, or you are patching your own patch, stop and re-plan: one task
+  per PR.
+- **Break it on purpose.** When green, flip a condition or change a constant
+  in the line you just wrote. A test should fail. If none does, the code is
+  not actually covered, whatever the coverage number says.
+- Test through the real boundary (HTTP handler, database, job runner), not
+  mocks of your own modules; mock only what costs money or leaves the machine
+  (use the dev fakes).
 
 ## Part 1 — Verify
 
@@ -34,11 +58,29 @@ until it passed. This skill is the habit that prevents them.
 Go as far up the ladder as the change's risk demands: a copy change needs 1
 and a screenshot; a webhook change needs 1–5.
 
+**While iterating, run only what the change can affect**, then everything
+once before the PR: `vitest related <changed files> --run` or
+`vitest --changed`; Python `pytest --lf -x` (last failed first), or
+`pytest-testmon`. A 5-second loop gets used; a 5-minute one gets skipped.
+The full run is what counts as evidence.
+
 ### Bug fixes: see it fail first
 
-Write the regression test, run it on the default branch to watch it fail
-(`git worktree add ../base origin/<default>`), then pass on yours. A test
-that never failed proves nothing about the bug.
+Write the regression test, watch it fail without the fix, then pass with it.
+A test that never failed proves nothing about the bug. Two ways, easiest first:
+
+- **Revert only the fix.** With the test and fix both in place, stash just the
+  fix files (`git stash push -- src/path/to/fix.ts`), run the new test (red),
+  `git stash pop`, run it again (green).
+- **A clean worktree of the default branch**, when the fix is spread out:
+  `git worktree add ../base origin/<default>`, copy the new test file in, and
+  give it dependencies first. A fresh worktree has no `node_modules` and no
+  `.env`: run the install there (`npm ci`), or symlink
+  (`ln -s "$PWD/node_modules" ../base/node_modules`) and export the same test
+  database URL. Remove it afterwards (`git worktree remove ../base`).
+
+Read the failure message: it must fail for the bug's reason, not because the
+test file couldn't import something that only exists on your branch.
 
 ### Report evidence, not adjectives
 

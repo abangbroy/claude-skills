@@ -1,6 +1,6 @@
 ---
 name: payments-webhooks
-description: Build payment and money logic that survives real gateways - integer money, a gateway adapter with an offline fake, signed webhooks processed in one idempotent transaction, status precedence for late and out-of-order events, a credit/wallet ledger that can't go negative or double-grant, reconciliation when webhooks go missing, refunds on failed fulfilment, and the tests that prove it. Use whenever the task involves checkout, a payment gateway (Stripe, CHIP, Billplz, Xendit, PayPal, ToyyibPay…), webhooks or callbacks, credits, wallets, top-ups, subscriptions, refunds, invoices, or any code that moves money - even a "small" pricing change.
+description: Build payment and money logic that survives real gateways - integer money, a gateway adapter with an offline fake, signed webhooks processed in one idempotent transaction, idempotency keys on gateway calls, status precedence for late and out-of-order events, a credit/wallet ledger that can't go negative or double-grant, reconciliation when webhooks go missing, refunds on failed fulfilment, and the tests that prove it. Use whenever the task involves checkout, a payment gateway (Stripe, CHIP, Billplz, Xendit, PayPal, ToyyibPay…), webhooks or callbacks, credits, wallets, top-ups, subscriptions, refunds, invoices, or any code that moves money - even a "small" pricing change.
 ---
 
 # Payments and webhooks
@@ -26,6 +26,14 @@ harmless by construction rather than by luck.
   `verifyWebhook(rawBody, headers)`, `refund`. The real implementation and a
   **fake gateway** (a dev-only page that "pays") for local runs, E2E and CI.
   The env loader refuses the fake in production.
+- **Every call that creates money movement carries an idempotency key you
+  generate and store first** (`createPurchase`, `refund`; the gateway's
+  `Idempotency-Key` header or reference field, whichever it offers). Derive it
+  from your own row, not a random value per attempt: the payment row id for a
+  purchase, the ledger spend id for a refund. Retries, the reconciliation job
+  and the retried `onDead` then replay the same request instead of creating a
+  second charge or a second refund. If the gateway has no such field, look the
+  purchase up by your reference before creating or refunding again.
 - Mark every vendor detail you haven't confirmed against their sandbox with
   `// VERIFY:` (method ids, amount field names, status names, base URLs per
   environment). Before launch, one real sandbox purchase clears them.
@@ -38,8 +46,12 @@ The webhook, the admin "re-process payment" button and the reconciliation job
 all call the same `processPaymentEvent`:
 
 1. **Verify the signature over the raw body** before parsing (RSA/HMAC as the
-   gateway specifies). Support several keys if the gateway rotates or uses
-   per-webhook keys.
+   gateway specifies). Compare HMACs in constant time
+   (`crypto.timingSafeEqual`, `hmac.compare_digest`), never with `===`. If
+   the gateway signs a timestamp, reject deliveries outside a tolerance (about
+   5 minutes) so a captured valid webhook can't be replayed later; if it
+   doesn't, the unique constraints below are your replay defence. Support
+   several keys if the gateway rotates or uses per-webhook keys.
 2. Parse with a whitelist schema. Store only what you need (status, amounts,
    ids); drop the payer's name, email, phone and card details.
 3. In one transaction: lock the payment row by the gateway's purchase id
@@ -110,13 +122,44 @@ Unit/DB tests (on a real database, see postgres-migrations-release):
 - Same webhook twice → granted once. Two deliveries concurrently → granted once.
 - `failed` after `paid` → still paid. `paid` after `failed` → paid.
 - Amount, currency or reference mismatch → nothing applied, 422, alert.
-- Bad signature → 401, nothing read. Unknown purchase → 200, nothing applied.
+- Bad signature → 401, nothing read. Stale timestamp → rejected. Unknown
+  purchase → 200, nothing applied.
+- A retried `createPurchase` or `refund` (same key) → one charge, one refund.
 - Spend across two grants with different expiries; expiry of a partly used
   grant; refund returns to the original grant; two concurrent spends of the
   last credit → one succeeds.
 - Fulfilment job dies → credit refunded exactly once, even if `onDead` failed
   the first time.
 - Reconciliation racing the webhook → granted once.
+
+**Property tests for the rules that must hold for every ordering.** Examples
+catch the cases you thought of; webhooks arrive in orders you didn't. Pull the
+status rule into a pure function and let a generator try thousands of event
+sequences (fast-check for TypeScript, Hypothesis for Python):
+
+```ts
+import fc from "fast-check";
+const statuses = ["created", "failed", "expired", "paid", "refunded"] as const;
+const sequences = fc.array(fc.constantFrom(...statuses), { minLength: 1, maxLength: 12 });
+
+test("a paid payment never goes back, whatever order events arrive in", () => {
+  fc.assert(fc.property(sequences, (events) => {
+    let paid = false;
+    return events.every((e, i) => {
+      const s = events.slice(0, i + 1).reduce(nextStatus, "created");
+      paid ||= s === "paid" || s === "refunded";
+      return !paid || s === "paid" || s === "refunded";
+    });
+  }));
+});
+test("redelivering an event changes nothing", () => { /* nextStatus(s, e) === s after e applied once */ });
+```
+
+Run against a naive "last event wins" version, this finds and shrinks to the
+two-event counterexample (`refunded` then `created`) in milliseconds. Do the
+same for the ledger: any mix of grants, spends and refunds never leaves a
+balance below zero, and a refund returns exactly one credit. Keep a seed in
+the failure message so a failure reproduces.
 
 E2E: the full journey with the fake gateway, plus a declined payment.
 

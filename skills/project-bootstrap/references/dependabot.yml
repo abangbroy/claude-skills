@@ -1,0 +1,15 @@
+# Add as .github/dependabot.yml. Keeps pinned action SHAs and dependencies current in small, reviewable PRs.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+    groups:
+      actions: { patterns: ["*"] }
+  - package-ecosystem: npm            # pip / uv for Python projects
+    directory: /
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+    groups:
+      # Minor and patch bumps travel together; a major version is its own PR (see the dependency rules).
+      minor-and-patch: { update-types: ["minor", "patch"] }

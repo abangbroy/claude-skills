@@ -1,6 +1,6 @@
 ---
 name: llm-product-features
-description: Build product features where an LLM's output reaches users - recommendations, generated plans or text, structured extraction - so they stay correct, cheap and safe. The model picks from IDs the app gives it and never writes URLs, prices or facts; output is schema- and business-validated with retry and provider fallback; user text is fenced as data; prompts are versioned files; an eval harness with a baseline gates every prompt or model change; cost, caps and call logs are built in. Use whenever an app feature calls an LLM (OpenAI, Anthropic, Gemini or any provider), when writing or changing a prompt, picking a model, adding structured output, or debugging bad, invented or costly AI output.
+description: Build product features where an LLM's output reaches users - recommendations, generated plans or text, structured extraction - so they stay correct, cheap and safe. The model picks from IDs the app gives it and never writes URLs, prices or facts; output is schema- and business-validated with retry and provider fallback; user text is fenced as data; prompts are versioned files; an eval harness with a baseline and a tested judge gates every prompt or model change; retries, prompt caching, cost caps and call logs are built in. Use whenever an app feature calls an LLM (OpenAI, Anthropic, Gemini or any provider), when writing or changing a prompt, picking a model, adding structured output, or debugging bad, invented or costly AI output.
 ---
 
 # LLM product features
@@ -38,7 +38,18 @@ everything the model returns before a user sees it.
 - On failure: **one retry on the same provider with the validation errors and
   the rejected output appended**, then the fallback provider gets the same two
   attempts. Config errors (missing key, 401/403/404) skip straight to fallback.
-- Bound latency: SDK auto-retries off, an explicit timeout per stage.
+- **Two different retries, kept apart.** *Validation retry* (above) re-asks
+  the model after bad output. *Transport retry* handles the provider failing:
+  429 `rate_limit_error`, 500 `api_error` and 529 `overloaded_error` are
+  retryable, so back off with jitter (honour `retry-after`, which the API
+  documents on 429) for 2–3 tries inside the stage's time budget, then go to
+  the fallback provider. 400/401/402/403/404/413 are not retryable: fail fast
+  (config or request bug), never loop on them. Anthropic's SDK already retries
+  429 and 5xx (default 2 retries); leave that on only if `timeout × (retries +
+  1)` fits the stage budget, otherwise set it to 0 and own the policy once.
+  SDK retries × your retries multiply, so never run both unbounded.
+- Bound latency: an explicit timeout per stage, and a total deadline across
+  validation retries, transport retries and fallback together.
 - Everything the user sees passes through validation. If it can't be fixed,
   fail visibly (and refund if they paid), never show unvalidated text.
 
@@ -51,8 +62,8 @@ everything the model returns before a user sees it.
   `AI_STAGE1_MODEL`, fallback pair), so switching is a config change chosen
   by the eval, not by brand.
 - Log every call to a `generations` table: provider, model, prompt version,
-  tokens (including thinking), cost from a prices table, latency, error, and
-  every attempt. Retries and fallbacks cost money; the row shows the total.
+  tokens (including thinking and cache reads/writes), cost from a prices
+  table, latency, error, and every attempt. Retries and fallbacks cost money; the row shows the total.
 - Data protection: check where each provider processes data before sending
   user content; exclude providers that don't fit the law you're under.
 
@@ -86,8 +97,13 @@ Details and file shapes in [references/eval-harness.md](references/eval-harness.
   the owner fills in when picking models.
 - `evals/baseline.json` per stage and provider/model; `eval --ci` fails when
   a metric drops more than a tolerance; `--update-baseline` after an accepted
-  change. CI runs it offline on the fake provider (structure); real providers
-  run by hand with keys when choosing or changing models.
+  change. CI runs it offline on the fake provider on every PR, but that only
+  proves structure: a prompt that got worse still passes it. So a PR that
+  touches `prompts/**` or the model config also runs a small **real-model
+  smoke eval** (a fixed 8–10 case subset, a hard dollar cap, a wider
+  tolerance because real output varies) and fails on a drop. Starter in
+  [references/eval-real.yml](references/eval-real.yml). Full-set runs across
+  candidate models stay manual, with keys, when choosing or changing models.
 
 ## 7. Cost control
 
@@ -95,6 +111,22 @@ Details and file shapes in [references/eval-harness.md](references/eval-harness.
   makes a short structured preview (free); the strong model writes the full
   output only after payment. Output tokens dominate cost.
 - Cheapest model that passes the eval for each stage.
+- **Prompt caching** when a long, stable block repeats across calls (rules,
+  catalog, few-shot examples). Order the prompt tools → system → messages with
+  everything stable first and the per-request brief last, and put the cache
+  breakpoint (`cache_control: {"type": "ephemeral"}`) at the end of the
+  *shared* part. A breakpoint after the unique tail writes a new entry every
+  call and never reads one, which is pure extra cost. Facts to design around:
+  default lifetime 5 minutes (`"ttl": "1h"` available, written at 2× instead
+  of 1.25× input price; reads cost about 0.1×); at most 4 breakpoints; the
+  minimum cacheable prefix depends on the model (512 to 4096 tokens), and a
+  shorter prefix silently does not cache; caches are per workspace. Any byte
+  that changes before the breakpoint (a timestamp, unsorted JSON, a different
+  tool list) invalidates everything after it. Proof it works is
+  `usage.cache_read_input_tokens > 0` on the second identical call; log
+  `cache_creation_input_tokens` and `cache_read_input_tokens` with each
+  generation and alert when reads fall to zero after a prompt-assembly change,
+  because the only symptom of a broken cache is a bigger bill.
 - A daily cap on free generations across all users, counted under an advisory
   lock (failed ones count too — they cost money), plus per-IP/session rate
   limits and bot protection on the free entry point.

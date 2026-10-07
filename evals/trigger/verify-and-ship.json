@@ -1,0 +1,46 @@
+[
+  {
+    "query": "I think the checkout fix is done, can you make sure it actually works before I merge?",
+    "should_trigger": true
+  },
+  {
+    "query": "open a PR for these changes",
+    "should_trigger": true
+  },
+  {
+    "query": "CI is red on my PR and I don't know why, can you get it green?",
+    "should_trigger": true
+  },
+  {
+    "query": "write a regression test for this bug and show it fails without the fix",
+    "should_trigger": true
+  },
+  {
+    "query": "reviewer left three comments on my pull request, address them",
+    "should_trigger": true
+  },
+  {
+    "query": "the unit tests pass but I'm not sure the database tests even ran",
+    "should_trigger": true
+  },
+  {
+    "query": "write a python function that parses ISO dates",
+    "should_trigger": false
+  },
+  {
+    "query": "explain how git rebase differs from merge",
+    "should_trigger": false
+  },
+  {
+    "query": "rename the variable foo to bar across the repo",
+    "should_trigger": false
+  },
+  {
+    "query": "what's the best way to structure a React component tree?",
+    "should_trigger": false
+  },
+  {
+    "query": "draft a product requirements doc for a recipe app",
+    "should_trigger": false
+  }
+]

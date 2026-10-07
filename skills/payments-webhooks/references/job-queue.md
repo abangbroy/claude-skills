@@ -20,6 +20,8 @@ create table jobs (
   locked_at timestamptz,
   last_error text,
   dead_handled_at timestamptz,               -- set when onDead finished
+  dead_attempts int not null default 0,      -- onDead tries so far (its own backoff)
+  dead_retry_at timestamptz,                 -- earliest next onDead try; null = now
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -33,8 +35,9 @@ alter table jobs enable row level security;  -- server only
 update jobs set status = 'running', attempts = attempts + 1, locked_at = now(), updated_at = now()
 where id = (
   select id from jobs
-  where (status in ('queued', 'failed') and run_after <= now())
-     or (status = 'running' and locked_at < now() - interval '10 minutes' and attempts < max_attempts)
+  where attempts < max_attempts
+    and ((status in ('queued', 'failed') and run_after <= now())
+      or (status = 'running' and locked_at < now() - interval '10 minutes'))
   order by run_after
   limit 1
   for update skip locked
@@ -43,8 +46,36 @@ returning *;
 ```
 
 A job stuck `running` past the lock timeout (its worker was killed by a
-platform time limit) is re-claimed only while attempts remain; at max attempts
-mark it `dead` and run `onDead`.
+platform time limit) is re-claimed only while attempts remain. One that dies on
+its **last** attempt matches no claim, so nothing would ever move it on: it
+stays `running` forever, `onDead` never fires, and a paying customer is never
+refunded. The cron sweep therefore also runs both of these on every tick:
+
+```sql
+-- 1. Exhausted jobs become dead (covers a worker killed on the last attempt, and any
+--    `failed` row at max attempts if your handler forgot to mark it dead).
+update jobs
+set status = 'dead', last_error = coalesce(last_error, 'worker lost on final attempt'), updated_at = now()
+where attempts >= max_attempts
+  and (status = 'failed' or (status = 'running' and locked_at < now() - interval '10 minutes'))
+returning id, kind;
+
+-- 2. Claim one dead job whose onDead has not finished; run onDead on it.
+update jobs set dead_attempts = dead_attempts + 1,
+                dead_retry_at = now() + least(power(2, dead_attempts) * interval '1 minute', interval '1 hour')
+where id = (
+  select id from jobs
+  where status = 'dead' and dead_handled_at is null and coalesce(dead_retry_at, now()) <= now()
+  order by id
+  limit 1
+  for update skip locked
+)
+returning *;
+-- onDead succeeded: update jobs set dead_handled_at = now() where id = $1;
+```
+
+Alert when `dead_attempts` passes 5 for any job: a refund that keeps failing
+needs a human.
 
 ## Rules
 

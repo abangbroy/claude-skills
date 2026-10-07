@@ -1,0 +1,26 @@
+# Scheduled dependency audit: add as .github/workflows/audit.yml.
+# New advisories appear on their own schedule, not when a PR changes. Checking weekly (and on demand)
+# finds them without blocking unrelated work; the run fails and notifies the owner.
+name: Dependency audit
+on:
+  schedule:
+    - cron: "17 6 * * 1"        # Mondays 06:17 UTC; an off-minute avoids the top-of-hour rush
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts          # the audit needs the tree, not install scripts
+      - run: npm audit --omit=dev --audit-level=high

@@ -15,6 +15,10 @@ fi
 
 cd "$CLAUDE_PROJECT_DIR"
 
+# The enforcement hooks (guard-edit, after-edit, stop-check) parse JSON with jq. Without it they print a
+# warning and do nothing, which looks like safety and is not.
+command -v jq >/dev/null || { apt-get install -y -qq jq >/dev/null 2>&1 || echo "WARNING: jq missing; guard hooks are inactive" >&2; }
+
 # Dependencies. `npm install` (not `ci`) reuses node_modules from the cached container state.
 # Python: `pip install -r requirements.txt` or `uv sync`.
 npm install --no-audit --no-fund

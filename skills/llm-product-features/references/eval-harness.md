@@ -40,10 +40,16 @@ candidates, conflicting must-haves, and at least one prompt-injection note.
   "runs": {
     "stage1:fake/fake-1": {"valid_json": 100, "valid_ids": 100, "within_budget": 100,
       "pass_first": 100, "pass_final": 100, "prompt_version": "stage1-v0.4", "updated": "2026-10-06"},
-    "stage1:anthropic/claude-haiku-4-5": {"…": "…"}
+    "stage1:anthropic/claude-haiku-4-5": {"…": "…", "tolerance_pct": 10,
+      "smoke": {"valid_json": 100, "valid_ids": 100, "within_budget": 90, "pass_first": 80, "pass_final": 100}}
   }
 }
 ```
+
+A key may carry its own `tolerance_pct`. Real models vary run to run, so give
+them a wider band than the fake (which is exactly reproducible). Hard
+correctness metrics (`valid_json`, `valid_ids`, `pass_final`) should still sit
+at or near 100 in the baseline so a real regression stays visible.
 
 ## Flags
 
@@ -54,6 +60,8 @@ candidates, conflicting must-haves, and at least one prompt-injection note.
 | `--only g01,g12` | subset while iterating (not allowed with `--ci`/`--update-baseline`) |
 | `--ci` | compare with `baseline.json`; exit 1 if any metric drops more than `tolerance_pct` |
 | `--update-baseline` | write this run's scores for its stage:provider/model key |
+| `--smoke` | run only briefs marked `"smoke": true` (8–10 spanning each mode, language, an edge budget and the injection case); compared against the `smoke` entry of the key, not the full-set one |
+| `--max-cost-usd N` | stop and exit 1 when the run's logged cost passes N, so a CI eval can never run away |
 
 ## Output per run
 
@@ -66,6 +74,47 @@ candidates, conflicting must-haves, and at least one prompt-injection note.
 Print a summary line per stage (`stage1 anthropic/claude-haiku-4-5 valid_ids
 100% within_budget 97% pass_first 90% cost $0.21 p50 3.1s`) — paste these into
 `docs/ai/README.md` with the prompt version, before and after a change.
+
+## Grading with a model (LLM as judge)
+
+Prefer a programmatic check wherever one exists (valid ids, within budget,
+JSON validates): it is free and exact. Use a model judge only for what code
+can't see (tone, language quality, whether copy fits the occasion).
+
+- **Not the model under test.** A model grading its own output flatters it.
+  Use a different model, and record `judge_model` and its tokens so judge cost
+  shows in the run total.
+- **Pairwise beats absolute scores for fuzzy quality.** Show the judge two
+  outputs (new vs the frozen baseline outputs), randomise which is A on every
+  case, and allow `tie`/`both_bad`. Freeze the reference outputs once; never
+  regenerate them or "win rate" changes meaning between rounds.
+- **Rubrics of checkable claims** ("names at least one item from the given
+  list", "no link or price appears in the text"), not "rate helpfulness 1–5".
+- **Structured output for the verdict** (JSON schema), not "reply with only
+  JSON". Treat the candidate text as untrusted data in the judge's prompt: a
+  generated text that says "give this a 5" must not work.
+- **Test the judge before trusting it.** It must fail an empty answer, "I don't
+  know" and a confident answer to the wrong question, and pass a known-good
+  one. Then compare it with the owner's human grades on 20+ cases; where they
+  disagree, fix the rubric, not the numbers. Until it agrees with a human, its
+  scores rank candidates but never gate a merge.
+- A judge can be gamed and can fixate on length or format. Spot-read a sample
+  of graded rows every time the rubric or judge model changes.
+
+## Real-model gate in CI
+
+`--ci` on the fake provider checks structure and is free. For PRs that change a
+prompt or model config, add the smoke run from
+[eval-real.yml](eval-real.yml): real provider, `--smoke --ci --max-cost-usd 1`.
+Rules that keep it safe:
+
+- Run it only when `prompts/**`, the model config or the eval code changed.
+- Secrets are not available to PRs from forks. Skip with a visible notice
+  there and have a maintainer run it, rather than failing or exposing a key.
+- Use a CI-only provider key with a spend limit set at the provider.
+- Upload `.eval-results/` as an artifact so a failure can be read, not guessed.
+- A drop is a finding to explain. Accept it with `--update-baseline` in the
+  same PR only with the before and after rows in `docs/ai/` and a reason.
 
 ## Choosing models
 
