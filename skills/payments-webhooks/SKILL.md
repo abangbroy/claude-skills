@@ -26,6 +26,14 @@ harmless by construction rather than by luck.
   `verifyWebhook(rawBody, headers)`, `refund`. The real implementation and a
   **fake gateway** (a dev-only page that "pays") for local runs, E2E and CI.
   The env loader refuses the fake in production.
+- **Every call that creates money movement carries an idempotency key you
+  generate and store first** (`createPurchase`, `refund`; the gateway's
+  `Idempotency-Key` header or reference field, whichever it offers). Derive it
+  from your own row, not a random value per attempt: the payment row id for a
+  purchase, the ledger spend id for a refund. Retries, the reconciliation job
+  and the retried `onDead` then replay the same request instead of creating a
+  second charge or a second refund. If the gateway has no such field, look the
+  purchase up by your reference before creating or refunding again.
 - Mark every vendor detail you haven't confirmed against their sandbox with
   `// VERIFY:` (method ids, amount field names, status names, base URLs per
   environment). Before launch, one real sandbox purchase clears them.
@@ -38,8 +46,12 @@ The webhook, the admin "re-process payment" button and the reconciliation job
 all call the same `processPaymentEvent`:
 
 1. **Verify the signature over the raw body** before parsing (RSA/HMAC as the
-   gateway specifies). Support several keys if the gateway rotates or uses
-   per-webhook keys.
+   gateway specifies). Compare HMACs in constant time
+   (`crypto.timingSafeEqual`, `hmac.compare_digest`), never with `===`. If
+   the gateway signs a timestamp, reject deliveries outside a tolerance (about
+   5 minutes) so a captured valid webhook can't be replayed later; if it
+   doesn't, the unique constraints below are your replay defence. Support
+   several keys if the gateway rotates or uses per-webhook keys.
 2. Parse with a whitelist schema. Store only what you need (status, amounts,
    ids); drop the payer's name, email, phone and card details.
 3. In one transaction: lock the payment row by the gateway's purchase id
@@ -110,7 +122,9 @@ Unit/DB tests (on a real database, see postgres-migrations-release):
 - Same webhook twice → granted once. Two deliveries concurrently → granted once.
 - `failed` after `paid` → still paid. `paid` after `failed` → paid.
 - Amount, currency or reference mismatch → nothing applied, 422, alert.
-- Bad signature → 401, nothing read. Unknown purchase → 200, nothing applied.
+- Bad signature → 401, nothing read. Stale timestamp → rejected. Unknown
+  purchase → 200, nothing applied.
+- A retried `createPurchase` or `refund` (same key) → one charge, one refund.
 - Spend across two grants with different expiries; expiry of a partly used
   grant; refund returns to the original grant; two concurrent spends of the
   last credit → one succeeds.

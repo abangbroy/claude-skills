@@ -12,7 +12,11 @@ import postgres from "postgres";
 
 const MIGRATIONS_DIR = path.join(process.cwd(), "supabase", "migrations");
 
-/** Local/CI runner. Tracks applied files in dev_meta.migrations. Hosted envs use the provider's tool. */
+/**
+ * Local/CI runner. Tracks applied files in dev_meta.migrations. Hosted envs use the provider's tool.
+ * Each file runs in one transaction, except files whose first lines contain `-- no-transaction`
+ * (for `create index concurrently`); the hosted tool must be told the same (see SKILL.md).
+ */
 export async function applyMigrations(url: string): Promise<string[]> {
   const sql = postgres(url, { max: 1, onnotice: () => {} });
   try {
@@ -24,10 +28,18 @@ export async function applyMigrations(url: string): Promise<string[]> {
     for (const file of files) {
       if (done.has(file)) continue;
       const body = readFileSync(path.join(MIGRATIONS_DIR, file), "utf8");
-      await sql.begin(async (tx) => {
-        await tx.unsafe(body);
-        await tx`insert into dev_meta.migrations (name) values (${file})`;
-      });
+      if (/^--\s*no-transaction\b/m.test(body.split("\n", 3).join("\n"))) {
+        // `create index concurrently` and friends cannot run inside a transaction.
+        // Keep such a file to one statement type so a failure leaves nothing half-applied,
+        // and make it re-runnable (`if not exists`).
+        await sql.unsafe(body);
+        await sql`insert into dev_meta.migrations (name) values (${file})`;
+      } else {
+        await sql.begin(async (tx) => {
+          await tx.unsafe(body);
+          await tx`insert into dev_meta.migrations (name) values (${file})`;
+        });
+      }
       applied.push(file);
     }
     return applied;

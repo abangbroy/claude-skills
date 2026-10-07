@@ -86,8 +86,13 @@ Details and file shapes in [references/eval-harness.md](references/eval-harness.
   the owner fills in when picking models.
 - `evals/baseline.json` per stage and provider/model; `eval --ci` fails when
   a metric drops more than a tolerance; `--update-baseline` after an accepted
-  change. CI runs it offline on the fake provider (structure); real providers
-  run by hand with keys when choosing or changing models.
+  change. CI runs it offline on the fake provider on every PR, but that only
+  proves structure: a prompt that got worse still passes it. So a PR that
+  touches `prompts/**` or the model config also runs a small **real-model
+  smoke eval** (a fixed 8–10 case subset, a hard dollar cap, a wider
+  tolerance because real output varies) and fails on a drop. Starter in
+  [references/eval-real.yml](references/eval-real.yml). Full-set runs across
+  candidate models stay manual, with keys, when choosing or changing models.
 
 ## 7. Cost control
 

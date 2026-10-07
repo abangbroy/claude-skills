@@ -36,9 +36,21 @@ and a screenshot; a webhook change needs 1–5.
 
 ### Bug fixes: see it fail first
 
-Write the regression test, run it on the default branch to watch it fail
-(`git worktree add ../base origin/<default>`), then pass on yours. A test
-that never failed proves nothing about the bug.
+Write the regression test, watch it fail without the fix, then pass with it.
+A test that never failed proves nothing about the bug. Two ways, easiest first:
+
+- **Revert only the fix.** With the test and fix both in place, stash just the
+  fix files (`git stash push -- src/path/to/fix.ts`), run the new test (red),
+  `git stash pop`, run it again (green).
+- **A clean worktree of the default branch**, when the fix is spread out:
+  `git worktree add ../base origin/<default>`, copy the new test file in, and
+  give it dependencies first. A fresh worktree has no `node_modules` and no
+  `.env`: run the install there (`npm ci`), or symlink
+  (`ln -s "$PWD/node_modules" ../base/node_modules`) and export the same test
+  database URL. Remove it afterwards (`git worktree remove ../base`).
+
+Read the failure message: it must fail for the bug's reason, not because the
+test file couldn't import something that only exists on your branch.
 
 ### Report evidence, not adjectives
 

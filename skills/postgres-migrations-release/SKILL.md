@@ -31,6 +31,13 @@ deploys never race their schema.
   a column type; an enum value removed; an index built without
   `concurrently` on a big hot table (locks writes); a long backfill inside the
   migration transaction (do it in batches or a job).
+- **`create index concurrently` cannot run inside a transaction**, and most
+  runners wrap each file in one. Put it alone in its own file, first line
+  `-- no-transaction`, written `if not exists` so a half-failed run (it leaves
+  an invalid index behind: drop it, rerun) can be repeated. The runner in
+  [references/test-db.md](references/test-db.md) honours the marker. Whether
+  your hosted migration tool does is something to prove, not assume: apply
+  such a file to a throwaway database with that tool before relying on it.
 - **Row-level security with the table, in the same file.** `alter table …
   enable row level security` plus the policies the table needs. If only the
   server touches it (direct connection as a privileged role), say so in a

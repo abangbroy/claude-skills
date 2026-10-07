@@ -1,19 +1,44 @@
 # Starter CI for a Node + Postgres web app. Adapt names, versions and env.
 # Lean by design: free CI minutes run out, and when they do every workflow stops (backups too).
+#
+# No `paths:` filter on the trigger. A workflow skipped by a path filter never reports a status,
+# so a required check stays "Pending" forever and a docs-only PR can't merge. Instead the workflow
+# always starts, the cheap `scope` job decides, and jobs skipped by an `if:` report success.
 name: CI
 on:
   pull_request:
-    paths: ["**", "!docs/**", "!**/*.md", "prompts/**"]   # skip docs-only changes; prompts are code
   push:
     branches: [main]
-    paths: ["**", "!docs/**", "!**/*.md", "prompts/**"]
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  scope:
+    # Docs-only changes skip the expensive jobs. Prompts are code even though they are .md files.
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      code: ${{ steps.scope.outputs.code }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          code=true   # when in doubt (new branch, fetch failed), run everything
+          if [ -n "$BASE_SHA" ] && [ "$BASE_SHA" != "0000000000000000000000000000000000000000" ] \
+             && git fetch --no-tags --depth=1 origin "$BASE_SHA" 2>/dev/null; then
+            if ! git diff --name-only "$BASE_SHA" HEAD | awk '(!/^docs\// && !/\.md$/) || /^prompts\//' | grep -q .; then
+              code=false
+            fi
+          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+
   check:
+    needs: scope
+    if: needs.scope.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
